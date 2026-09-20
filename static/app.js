@@ -1,380 +1,215 @@
 /* ============================================================
-   PyBuilder GUI — app.js
-   Frontend logic: drag-drop, SSE streaming, build control
+   PyBuilder — app.js  (100% frontend, no backend needed)
    ============================================================ */
 
-// ── State ──────────────────────────────────────────────────
-let selectedScriptPath = "";
-let eventSource = null;
-let buildRunning = false;
-let progressInterval = null;
+// ── Canvas particles ─────────────────────────────────────────
+(function initCanvas() {
+  const canvas = document.getElementById("canvas");
+  if (!canvas) return;
+  const ctx = canvas.getContext("2d");
+  const particles = [];
 
-// ── Init ────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
-  createParticles();
-  checkPyInstaller();
-  setupInputListeners();
-  updateCommandPreview();
+  function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+  resize();
+  window.addEventListener("resize", resize);
+
+  for (let i = 0; i < 60; i++) {
+    particles.push({
+      x: Math.random() * window.innerWidth,
+      y: Math.random() * window.innerHeight,
+      r: Math.random() * 1.5 + 0.3,
+      vx: (Math.random() - 0.5) * 0.3,
+      vy: (Math.random() - 0.5) * 0.3,
+      a: Math.random() * 0.5 + 0.1,
+      c: Math.random() > 0.5 ? "124,58,237" : "6,182,212"
+    });
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0) p.x = canvas.width;
+      if (p.x > canvas.width) p.x = 0;
+      if (p.y < 0) p.y = canvas.height;
+      if (p.y > canvas.height) p.y = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(${p.c},${p.a})`;
+      ctx.fill();
+    });
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// ── Header scroll ─────────────────────────────────────────────
+window.addEventListener("scroll", () => {
+  document.getElementById("header")?.classList.toggle("scrolled", window.scrollY > 20);
 });
 
-// ── Particles ───────────────────────────────────────────────
-function createParticles() {
-  const container = document.getElementById("particles");
-  for (let i = 0; i < 25; i++) {
-    const p = document.createElement("div");
-    p.className = "particle";
-    const size = Math.random() * 4 + 1;
-    p.style.cssText = `
-      width: ${size}px; height: ${size}px;
-      left: ${Math.random() * 100}%;
-      animation-duration: ${Math.random() * 20 + 15}s;
-      animation-delay: ${Math.random() * 20}s;
-      opacity: ${Math.random() * 0.5 + 0.1};
-      background: ${Math.random() > 0.5 ? 'rgba(124,58,237,0.4)' : 'rgba(6,182,212,0.4)'};
-    `;
-    container.appendChild(p);
-  }
+// ── Mobile nav ────────────────────────────────────────────────
+function toggleMenu() {
+  document.getElementById("mobile-nav")?.classList.toggle("open");
 }
 
-// ── PyInstaller check ───────────────────────────────────────
-async function checkPyInstaller() {
-  try {
-    const res = await fetch("/api/check-pyinstaller");
-    const data = await res.json();
-    const dot = document.querySelector(".status-dot");
-    const text = document.getElementById("status-text");
+// ── FAQ ───────────────────────────────────────────────────────
+function toggleFaq(el) {
+  el.classList.toggle("open");
+}
 
-    if (data.installed) {
-      dot.className = "status-dot ok";
-      text.textContent = `PyInstaller ${data.version} ✓`;
-      document.getElementById("install-notice").style.display = "none";
-      termLog("info", `✅ PyInstaller ${data.version} kurulu ve hazır.`);
+// ── Toggle option active state ────────────────────────────────
+function toggleOpt(label, id) {
+  // Defer so checkbox state updates first
+  setTimeout(() => {
+    const cb = document.getElementById(id);
+    if (cb) label.classList.toggle("active", cb.checked);
+    generate();
+  }, 0);
+}
+
+// ── Command Generator ─────────────────────────────────────────
+function val(id) { return (document.getElementById(id)?.value || "").trim(); }
+function chk(id) { return document.getElementById(id)?.checked || false; }
+
+function generate() {
+  const script   = val("f-script")  || "app.py";
+  const name     = val("f-name");
+  const dist     = val("f-dist");
+  const icon     = val("f-icon");
+  const hidden   = val("f-hidden");
+  const exclude  = val("f-exclude");
+  const data     = val("f-data");
+  const hooks    = val("f-hooks");
+  const loglevel = val("f-loglevel");
+  const pypath   = val("f-pypath");
+
+  const oneFile  = chk("one-file");
+  const windowed = chk("windowed");
+  const noconsole= chk("noconsole");
+  const clean    = chk("clean");
+  const noupx    = chk("noupx");
+  const strip    = chk("strip");
+
+  const parts = ["pyinstaller"];
+  const flags = [];
+
+  if (oneFile)   { parts.push("--onefile");   flags.push("--onefile"); }
+  if (windowed)  { parts.push("--windowed");  flags.push("--windowed"); }
+  if (noconsole) { parts.push("--noconsole"); flags.push("--noconsole"); }
+  if (clean)     { parts.push("--clean");     flags.push("--clean"); }
+  if (noupx)     { parts.push("--noupx");     flags.push("--noupx"); }
+  if (strip)     { parts.push("--strip");     flags.push("--strip"); }
+
+  if (name)     parts.push(`--name "${name}"`);
+  if (dist)     parts.push(`--distpath "${dist}"`);
+  if (icon)     parts.push(`--icon "${icon}"`);
+  if (loglevel) parts.push(`--log-level ${loglevel}`);
+  if (pypath)   parts.push(`--paths "${pypath}"`);
+
+  if (hidden) {
+    hidden.split(",").map(s => s.trim()).filter(Boolean).forEach(h => {
+      parts.push(`--hidden-import ${h}`);
+    });
+  }
+  if (exclude) {
+    exclude.split(",").map(s => s.trim()).filter(Boolean).forEach(e => {
+      parts.push(`--exclude-module ${e}`);
+    });
+  }
+  if (data) {
+    data.split(";").map(s => s.trim()).filter(Boolean).forEach(d => {
+      parts.push(`--add-data "${d}"`);
+    });
+  }
+  if (hooks) {
+    hooks.split(",").map(s => s.trim()).filter(Boolean).forEach(h => {
+      parts.push(`--runtime-hook ${h}`);
+    });
+  }
+
+  parts.push(`"${script}"`);
+  const cmd = parts.join(" ");
+
+  // Update generated command
+  const el = document.getElementById("gen-cmd");
+  if (el) el.textContent = cmd;
+
+  // Output path
+  const stem = script.replace(/\.py$/i, "").replace(/^.*[/\\]/, "");
+  const finalName = name || stem;
+  const distDir = dist || "dist";
+  const outEl = document.getElementById("out-path");
+  if (outEl) outEl.textContent = `${distDir}/${finalName}.exe`;
+
+  // Flags list
+  const flagsEl = document.getElementById("flags-list");
+  if (flagsEl) {
+    if (flags.length === 0) {
+      flagsEl.innerHTML = `<span class="flags-empty">Aktif bayrak yok</span>`;
     } else {
-      dot.className = "status-dot error";
-      text.textContent = "PyInstaller kurulu değil";
-      document.getElementById("install-notice").style.display = "block";
-      termLog("warning", "⚠️ PyInstaller bulunamadı. Lütfen yükleyin.");
+      flagsEl.innerHTML = flags.map(f => `<span class="flag-tag">${f}</span>`).join("");
     }
-  } catch (e) {
-    termLog("error", "❌ Backend'e bağlanılamadı. Flask sunucusu çalışıyor mu?");
-  }
-}
-
-// ── Install PyInstaller ─────────────────────────────────────
-async function installPyInstaller() {
-  const btn = document.getElementById("btn-install");
-  btn.disabled = true;
-  btn.innerHTML = `<span>Yükleniyor...</span>`;
-
-  termLog("info", "📦 PyInstaller yükleniyor...");
-  startProgress();
-  openStream();
-
-  await fetch("/api/install-pyinstaller", { method: "POST" });
-}
-
-// ── File Browse ─────────────────────────────────────────────
-async function browseFile(type) {
-  try {
-    const res = await fetch("/api/browse-file", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ type })
-    });
-    const data = await res.json();
-    if (!data.path) return;
-
-    if (type === "py") {
-      setScriptPath(data.path);
-    } else if (type === "ico") {
-      document.getElementById("icon-path").value = data.path;
-      updateCommandPreview();
-    } else if (type === "dir") {
-      document.getElementById("output-dir").value = data.path;
-      updateCommandPreview();
-    }
-  } catch (e) {
-    showAlert("Dosya seçici açılamadı: " + e.message);
-  }
-}
-
-// ── Drag & Drop ─────────────────────────────────────────────
-function handleDragOver(e) {
-  e.preventDefault();
-  document.getElementById("drop-zone").classList.add("dragover");
-}
-
-function handleDragLeave(e) {
-  document.getElementById("drop-zone").classList.remove("dragover");
-}
-
-function handleDrop(e) {
-  e.preventDefault();
-  document.getElementById("drop-zone").classList.remove("dragover");
-
-  const files = e.dataTransfer.files;
-  if (files.length === 0) return;
-
-  const file = files[0];
-  if (!file.name.endsWith(".py")) {
-    showAlert("Lütfen bir .py dosyası seçin!");
-    return;
   }
 
-  // webkitRelativePath or use file.path (Electron) or name only
-  const path = file.path || file.name;
-  setScriptPath(path);
+  // Sync active states on opt-rows
+  syncOptRows();
 }
 
-function setScriptPath(path) {
-  selectedScriptPath = path;
-  document.getElementById("script-path").value = path;
-
-  const name = path.split(/[\\/]/).pop();
-  document.getElementById("file-name-display").textContent = name;
-
-  const dropZone = document.getElementById("drop-zone");
-  dropZone.classList.add("has-file");
-
-  const sf = document.getElementById("selected-file");
-  sf.style.display = "flex";
-
-  // Auto-fill app name from file stem
-  const stem = name.replace(".py", "");
-  if (!document.getElementById("app-name").value) {
-    document.getElementById("app-name").value = stem;
-  }
-
-  termLog("info", `📄 Seçilen dosya: ${path}`);
-  updateCommandPreview();
-}
-
-// ── Toggle update ────────────────────────────────────────────
-function updateToggle(itemId, checkboxId) {
-  const item = document.getElementById(itemId);
-  const cb = document.getElementById(checkboxId);
-  if (cb.checked) {
-    item.classList.add("active");
-  } else {
-    item.classList.remove("active");
-  }
-  updateCommandPreview();
-}
-
-// ── Command Preview ──────────────────────────────────────────
-function updateCommandPreview() {
-  const scriptPath = document.getElementById("script-path").value || "script.py";
-  const appName = document.getElementById("app-name").value;
-  const outputDir = document.getElementById("output-dir").value;
-  const iconPath = document.getElementById("icon-path").value;
-  const oneFile = document.getElementById("one-file").checked;
-  const windowed = document.getElementById("windowed").checked;
-  const noConsole = document.getElementById("no-console").checked;
-  const cleanBuild = document.getElementById("clean-build").checked;
-  const upx = document.getElementById("upx").checked;
-  const hiddenImports = document.getElementById("hidden-imports").value;
-
-  let cmd = "pyinstaller";
-  if (oneFile) cmd += " --onefile";
-  if (windowed) cmd += " --windowed";
-  if (noConsole) cmd += " --noconsole";
-  if (cleanBuild) cmd += " --clean";
-  if (!upx) cmd += " --noupx";
-  if (appName) cmd += ` --name "${appName}"`;
-  if (outputDir) cmd += ` --distpath "${outputDir}"`;
-  if (iconPath) cmd += ` --icon "${iconPath}"`;
-  if (hiddenImports) {
-    hiddenImports.split(",").map(s => s.trim()).filter(Boolean).forEach(hi => {
-      cmd += ` --hidden-import ${hi}`;
-    });
-  }
-  cmd += ` "${scriptPath.split(/[\\/]/).pop()}"`;
-
-  document.getElementById("cmd-preview").innerHTML = `<code>${escHtml(cmd)}</code>`;
-}
-
-function setupInputListeners() {
-  const ids = ["app-name", "output-dir", "icon-path", "hidden-imports", "add-data"];
-  ids.forEach(id => {
-    document.getElementById(id)?.addEventListener("input", updateCommandPreview);
+function syncOptRows() {
+  const map = {
+    "one-file": "opt-row",
+    "windowed": "opt-row",
+    "noconsole": "opt-row",
+    "clean": "opt-row",
+    "noupx": "opt-row",
+    "strip": "opt-row"
+  };
+  document.querySelectorAll(".opt-row").forEach(row => {
+    const cb = row.querySelector("input[type=checkbox]");
+    if (cb) row.classList.toggle("active", cb.checked);
   });
 }
 
-// ── Build ────────────────────────────────────────────────────
-async function startBuild() {
-  if (buildRunning) return;
-
-  const scriptPath = document.getElementById("script-path").value.trim() || selectedScriptPath;
-  if (!scriptPath) {
-    showAlert("Lütfen önce bir .py dosyası seçin!");
-    return;
-  }
-
-  const payload = {
-    scriptPath,
-    appName: document.getElementById("app-name").value.trim(),
-    outputDir: document.getElementById("output-dir").value.trim() || "dist",
-    iconPath: document.getElementById("icon-path").value.trim(),
-    oneFile: document.getElementById("one-file").checked,
-    windowed: document.getElementById("windowed").checked,
-    noConsole: document.getElementById("no-console").checked,
-    cleanBuild: document.getElementById("clean-build").checked,
-    upx: document.getElementById("upx").checked,
-    hiddenImports: document.getElementById("hidden-imports").value.trim(),
-    addData: document.getElementById("add-data").value.trim()
-  };
-
-  clearTerminal();
-  termLog("info", "🚀 Build başlatılıyor...");
-
-  buildRunning = true;
-  const btn = document.getElementById("btn-build");
-  btn.disabled = true;
-  btn.querySelector(".btn-build-text").textContent = "Derleniyor...";
-  btn.querySelector(".btn-build-icon").textContent = "⏳";
-
-  startProgress();
-  openStream();
-
+// ── Copy to clipboard ─────────────────────────────────────────
+async function copyCmd(id, btn) {
+  const text = document.getElementById(id)?.textContent || "";
   try {
-    const res = await fetch("/api/build", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      termLog("error", "❌ " + (err.error || "Build başlatılamadı"));
-      resetBuildBtn();
-    }
+    await navigator.clipboard.writeText(text);
+    btn.classList.add("copied");
+    btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><path d="M2 8l4 4 7-7" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    setTimeout(() => {
+      btn.classList.remove("copied");
+      btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 15 15" fill="none"><rect x="5" y="5" width="8" height="8" rx="1" stroke="currentColor" stroke-width="1.3"/><path d="M3 10H2a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="1.3"/></svg>`;
+    }, 2000);
   } catch (e) {
-    termLog("error", "❌ Sunucuya bağlanılamadı: " + e.message);
-    resetBuildBtn();
+    // fallback
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select(); document.execCommand("copy");
+    document.body.removeChild(ta);
   }
 }
 
-// ── SSE Stream ────────────────────────────────────────────────
-function openStream() {
-  if (eventSource) { eventSource.close(); }
-
-  eventSource = new EventSource("/api/stream");
-
-  eventSource.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-
-    if (msg.type === "ping" || msg.type === "connected") return;
-
-    if (msg.type === "separator") {
-      termLog("separator", msg.text);
-    } else if (msg.type === "done") {
-      eventSource.close();
-      stopProgress();
-      resetBuildBtn();
-      buildRunning = false;
-
-      if (msg.returncode === 0) {
-        showOpenFolderBtn();
-      }
-    } else {
-      termLog(msg.type, msg.text);
+// ── Smooth scroll for anchors ─────────────────────────────────
+document.querySelectorAll('a[href^="#"]').forEach(a => {
+  a.addEventListener("click", e => {
+    const target = document.querySelector(a.getAttribute("href"));
+    if (target) {
+      e.preventDefault();
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
     }
-  };
+  });
+});
 
-  eventSource.onerror = () => {
-    eventSource.close();
-    stopProgress();
-    resetBuildBtn();
-    buildRunning = false;
-  };
-}
+// ── Init ─────────────────────────────────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+  generate();
+  syncOptRows();
 
-// ── Terminal ─────────────────────────────────────────────────
-function termLog(type, text) {
-  const terminal = document.getElementById("terminal");
-
-  const line = document.createElement("div");
-  line.className = `term-line ${type}`;
-
-  const prefix = document.createElement("span");
-  prefix.className = "term-prefix";
-  prefix.textContent = type === "success" ? "✓" : type === "error" ? "✗" : type === "warning" ? "!" : type === "separator" ? "" : "►";
-
-  const content = document.createElement("span");
-  content.innerHTML = escHtml(text);
-
-  line.appendChild(prefix);
-  line.appendChild(content);
-  terminal.appendChild(line);
-
-  // Auto-scroll
-  terminal.scrollTop = terminal.scrollHeight;
-}
-
-function clearTerminal() {
-  document.getElementById("terminal").innerHTML = "";
-  document.getElementById("open-folder-btn").style.display = "none";
-}
-
-// ── Progress bar ─────────────────────────────────────────────
-let progressVal = 0;
-function startProgress() {
-  document.getElementById("progress-wrap").style.display = "block";
-  progressVal = 0;
-  progressInterval = setInterval(() => {
-    progressVal = Math.min(progressVal + Math.random() * 3, 85);
-    document.getElementById("progress-bar").style.width = progressVal + "%";
-  }, 500);
-}
-
-function stopProgress() {
-  clearInterval(progressInterval);
-  document.getElementById("progress-bar").style.width = "100%";
-  setTimeout(() => {
-    document.getElementById("progress-wrap").style.display = "none";
-    document.getElementById("progress-bar").style.width = "0%";
-  }, 800);
-}
-
-// ── Reset build button ───────────────────────────────────────
-function resetBuildBtn() {
-  const btn = document.getElementById("btn-build");
-  btn.disabled = false;
-  btn.querySelector(".btn-build-text").textContent = "EXE Oluştur";
-  btn.querySelector(".btn-build-icon").textContent = "🚀";
-  buildRunning = false;
-}
-
-// ── Open output folder ───────────────────────────────────────
-function showOpenFolderBtn() {
-  document.getElementById("open-folder-btn").style.display = "inline-flex";
-}
-
-async function openOutputFolder() {
-  const outDir = document.getElementById("output-dir").value.trim() || "dist";
-  try {
-    await fetch("/api/open-folder", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: outDir })
-    });
-  } catch (e) {
-    showAlert("Klasör açılamadı: " + e.message);
-  }
-}
-
-// ── Alert ────────────────────────────────────────────────────
-function showAlert(msg) {
-  const bar = document.getElementById("alert-bar");
-  document.getElementById("alert-msg").textContent = msg;
-  bar.style.display = "flex";
-  setTimeout(() => { bar.style.display = "none"; }, 5000);
-}
-
-// ── Helpers ──────────────────────────────────────────────────
-function escHtml(str) {
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+  // Mark --onefile as active on load
+  document.querySelectorAll(".opt-row").forEach(row => {
+    const cb = row.querySelector("input[type=checkbox]");
+    if (cb?.checked) row.classList.add("active");
+  });
+});
