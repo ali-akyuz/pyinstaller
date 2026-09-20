@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PyInstaller GUI — Python'dan EXE'ye</title>
+  <meta name="description" content="Python dosyalarını kolayca .exe uygulamalarına dönüştürün. PyInstaller için modern GUI aracı." />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <!-- Animated background -->
+  <div class="bg-gradient"></div>
+  <div class="bg-particles" id="particles"></div>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+            <path d="M14 2L26 8V20L14 26L2 20V8L14 2Z" stroke="url(#grad)" stroke-width="2" fill="none"/>
+            <path d="M14 7L10 10V14L14 16L18 14V10L14 7Z" fill="url(#grad)"/>
+            <defs>
+              <linearGradient id="grad" x1="2" y1="2" x2="26" y2="26">
+                <stop offset="0%" stop-color="#7C3AED"/>
+                <stop offset="100%" stop-color="#06B6D4"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <span class="logo-text">PyBuilder <span class="logo-tag">GUI</span></span>
+      </div>
+      <div class="header-status" id="pyinstaller-status">
+        <span class="status-dot checking"></span>
+        <span id="status-text">Kontrol ediliyor...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <!-- Top alert (hidden by default) -->
+    <div class="alert-bar" id="alert-bar" style="display:none;">
+      <span id="alert-msg"></span>
+      <button onclick="document.getElementById('alert-bar').style.display='none'">✕</button>
+    </div>
+
+    <!-- PyInstaller not installed notice -->
+    <div class="install-notice" id="install-notice" style="display:none;">
+      <div class="install-notice-inner">
+        <div class="install-icon">⚠️</div>
+        <div>
+          <h3>PyInstaller kurulu değil</h3>
+          <p>Devam etmek için PyInstaller'ı yüklemeniz gerekiyor.</p>
+        </div>
+        <button class="btn btn-install" id="btn-install" onclick="installPyInstaller()">
+          <span>pip install pyinstaller</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1v9M4 7l4 4 4-4M2 13h12"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="grid">
+
+      <!-- LEFT: File & Settings -->
+      <div class="card card-left">
+
+        <!-- Drop zone -->
+        <div class="section-label">📄 Python Dosyası</div>
+        <div class="drop-zone" id="drop-zone" onclick="browseFile('py')"
+             ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+          <div class="drop-icon">
+            <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+              <circle cx="24" cy="24" r="22" stroke="url(#dg)" stroke-width="2" stroke-dasharray="4 4"/>
+              <path d="M24 14v14M17 21l7-7 7 7" stroke="url(#dg)" stroke-width="2.5" stroke-linecap="round"/>
+              <path d="M14 34h20" stroke="url(#dg)" stroke-width="2.5" stroke-linecap="round"/>
+              <defs>
+                <linearGradient id="dg" x1="2" y1="2" x2="46" y2="46">
+                  <stop offset="0%" stop-color="#7C3AED"/>
+                  <stop offset="100%" stop-color="#06B6D4"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+          <p class="drop-title">Dosyayı sürükle & bırak</p>
+          <p class="drop-sub">veya tıklayarak seç · <strong>.py</strong> dosyaları</p>
+          <div class="selected-file" id="selected-file" style="display:none;">
+            <span class="file-badge">🐍</span>
+            <span id="file-name-display">—</span>
+          </div>
+        </div>
+
+        <input type="hidden" id="script-path" />
+
+        <!-- App Settings -->
+        <div class="section-label" style="margin-top:20px;">⚙️ Uygulama Ayarları</div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="app-name">Uygulama Adı</label>
+            <input type="text" id="app-name" placeholder="my_app" class="input" />
+          </div>
+          <div class="field">
+            <label>Çıktı Klasörü</label>
+            <div class="input-browse">
+              <input type="text" id="output-dir" placeholder="dist" class="input" />
+              <button class="browse-btn" onclick="browseFile('dir')" title="Klasör seç">📁</button>
+            </div>
+          </div>
+          <div class="field field-full">
+            <label>İkon Dosyası (.ico / .icns / .png)</label>
+            <div class="input-browse">
+              <input type="text" id="icon-path" placeholder="Opsiyonel..." class="input" />
+              <button class="browse-btn" onclick="browseFile('ico')" title="İkon seç">🖼️</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hidden imports -->
+        <div class="field" style="margin-top:12px;">
+          <label for="hidden-imports">Hidden Imports <span class="hint">(virgülle ayır)</span></label>
+          <input type="text" id="hidden-imports" placeholder="örn: PIL, cv2, sklearn" class="input" />
+        </div>
+
+        <!-- Add data -->
+        <div class="field" style="margin-top:12px;">
+          <label for="add-data">Add Data <span class="hint">(kaynak;hedef şeklinde, noktalı virgülle ayır)</span></label>
+          <input type="text" id="add-data" placeholder="örn: data/config.json;data" class="input" />
+        </div>
+
+      </div>
+
+      <!-- RIGHT: Options + Build -->
+      <div class="card-right">
+
+        <!-- Build Options -->
+        <div class="card">
+          <div class="section-label">🛠️ Build Seçenekleri</div>
+          <div class="options-grid">
+
+            <label class="toggle-item" id="opt-onefile">
+              <div class="toggle-info">
+                <span class="opt-name">--onefile</span>
+                <span class="opt-desc">Tek EXE dosyası oluştur</span>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="one-file" checked onchange="updateToggle('opt-onefile','one-file')"/>
+                <span class="slider"></span>
+              </div>
+            </label>
+
+            <label class="toggle-item" id="opt-windowed">
+              <div class="toggle-info">
+                <span class="opt-name">--windowed</span>
+                <span class="opt-desc">Konsol penceresi gösterme</span>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="windowed" onchange="updateToggle('opt-windowed','windowed')"/>
+                <span class="slider"></span>
+              </div>
+            </label>
+
+            <label class="toggle-item" id="opt-noconsole">
+              <div class="toggle-info">
+                <span class="opt-name">--noconsole</span>
+                <span class="opt-desc">Konsol çıktısını gizle</span>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="no-console" onchange="updateToggle('opt-noconsole','no-console')"/>
+                <span class="slider"></span>
+              </div>
+            </label>
+
+            <label class="toggle-item" id="opt-clean">
+              <div class="toggle-info">
+                <span class="opt-name">--clean</span>
+                <span class="opt-desc">Önce eski build dosyalarını temizle</span>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="clean-build" onchange="updateToggle('opt-clean','clean-build')"/>
+                <span class="slider"></span>
+              </div>
+            </label>
+
+            <label class="toggle-item" id="opt-upx">
+              <div class="toggle-info">
+                <span class="opt-name">--upx</span>
+                <span class="opt-desc">UPX ile sıkıştır (daha küçük dosya)</span>
+              </div>
+              <div class="toggle-switch">
+                <input type="checkbox" id="upx" onchange="updateToggle('opt-upx','upx')"/>
+                <span class="slider"></span>
+              </div>
+            </label>
+
+          </div>
+        </div>
+
+        <!-- Command Preview -->
+        <div class="card" style="margin-top:16px;">
+          <div class="section-label">💻 Komut Önizleme</div>
+          <div class="cmd-preview" id="cmd-preview">
+            <code>pyinstaller --onefile script.py</code>
+          </div>
+        </div>
+
+        <!-- Build Button -->
+        <button class="btn-build" id="btn-build" onclick="startBuild()">
+          <span class="btn-build-icon">🚀</span>
+          <span class="btn-build-text">EXE Oluştur</span>
+          <div class="btn-build-shine"></div>
+        </button>
+
+      </div>
+
+    </div>
+
+    <!-- Terminal Output -->
+    <div class="card terminal-card">
+      <div class="terminal-header">
+        <div class="terminal-dots">
+          <span class="dot red"></span>
+          <span class="dot yellow"></span>
+          <span class="dot green"></span>
+        </div>
+        <span class="terminal-title">Terminal Çıktısı</span>
+        <div class="terminal-actions">
+          <button class="term-btn" id="open-folder-btn" onclick="openOutputFolder()" style="display:none;" title="Klasörü aç">
+            📂 Çıktıyı Aç
+          </button>
+          <button class="term-btn" onclick="clearTerminal()" title="Temizle">🗑 Temizle</button>
+        </div>
+      </div>
+      <div class="terminal-body" id="terminal">
+        <div class="term-line info">
+          <span class="term-prefix">►</span>
+          <span>PyBuilder GUI hazır. Python dosyanızı seçip <strong>EXE Oluştur</strong> butonuna tıklayın.</span>
+        </div>
+      </div>
+      <!-- Progress bar -->
+      <div class="progress-bar-wrap" id="progress-wrap" style="display:none;">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="footer">
+    <p>PyBuilder GUI · PyInstaller wrapper · Python'dan EXE'ye</p>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

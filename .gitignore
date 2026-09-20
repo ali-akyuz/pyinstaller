@@ -1,0 +1,30 @@
+# Python cache / build dosyaları
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# PyInstaller build çıktıları
+build/
+dist/
+*.spec
+
+# Virtual environment
+venv/
+env/
+.env/
+
+# IDE dosyaları
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Windows sistem dosyaları
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ZIP dosyaları
+*.zip
